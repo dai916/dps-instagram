@@ -1,0 +1,34 @@
+name: token-refresh
+
+# IG長期トークン（約60日失効）を週次で自動更新し、IG_ACCESS_TOKEN Secret に書き戻す。
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # 毎週月曜 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      short_token:
+        description: "新しいスコープで発行し直した短期トークン（省略時はIG_ACCESS_TOKEN Secretを交換元にする）"
+        required: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests pynacl
+      - name: Mask manual short_token input
+        if: inputs.short_token != ''
+        run: echo "::add-mask::${{ inputs.short_token }}"
+      - name: Refresh long-lived token
+        env:
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          IG_ACCESS_TOKEN: ${{ inputs.short_token != '' && inputs.short_token || secrets.IG_ACCESS_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eo pipefail
+          python scripts/refresh_token.py

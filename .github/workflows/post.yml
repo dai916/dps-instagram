@@ -1,0 +1,57 @@
+name: post-reel
+
+# DPSリールを2日に1回 19:00 JST に自動投稿（schedule.json の日付で判定するため毎日起動）。
+# GitHub Actions の cron は数分〜30分程度遅延しうる（19:00〜19:30目安）。
+on:
+  schedule:
+    - cron: "0 10 * * *"   # 10:00 UTC = 19:00 JST
+  workflow_dispatch:
+    inputs:
+      id:
+        description: "投稿するリールID（例 R01）。省略時は当日分"
+        required: false
+      validate:
+        description: "trueでコンテナ作成のみ（公開しない疎通テスト）"
+        required: false
+        default: "false"
+
+concurrency:
+  group: post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Post reel
+        env:
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          MEDIA_BASE: https://dai916.github.io/dps-instagram
+        run: |
+          set -eo pipefail
+          ARGS=""
+          if [ -n "${{ inputs.id }}" ]; then ARGS="--id ${{ inputs.id }}"; fi
+          if [ "${{ inputs.validate }}" = "true" ]; then ARGS="$ARGS --validate"; fi
+          python scripts/post_reel.py $ARGS
+
+      - name: Commit posted.json
+        run: |
+          if [ -z "$(git status --porcelain posted.json)" ]; then
+            echo "no change"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add posted.json
+          git commit -m "posted: $(TZ=Asia/Tokyo date +%F)"
+          git push
